@@ -1,10 +1,14 @@
-package com.pocketree.pocketree.data
+package com.pocketree.pocketree.data.db
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import com.pocketree.pocketree.data.model.FocusSession
 
-// Replace YourEntity with your actual entity classes
-@Database(entities = [YourEntity::class], version = 1)
+@Database(
+    entities = [FocusSession::class],
+    version = 1,
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
-    abstract fun yourDao(): YourDao
+    abstract fun focusSessionDao(): FocusSessionDao
 }

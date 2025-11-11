@@ -1,13 +1,8 @@
-// In your app/build.gradle.kts file
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("kotlin-kapt")
-    id("org.jetbrains.kotlin.plugin.compose")
 }
-
-// ... rest of your build file
 
 android {
     namespace = "com.pocketree.pocketree"
@@ -31,42 +26,39 @@ android {
         }
     }
 
+    // ✅ Step B — enable view binding and (optional) Compose support
     buildFeatures {
+        viewBinding = true
         compose = true
     }
 
     composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.15"
+    }
 
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
 }
 
-
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.06.00") // Use the latest BOM
-    implementation(composeBom)
-    androidTestImplementation(composeBom)
-
-    // Your Compose dependencies (versions are now managed by the BOM)
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    debugImplementation("androidx.compose.ui:ui-tooling")
     // Core Android
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
 
-    // Lifecycle
+    // Lifecycle + ViewModel
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.3")
-    implementation("androidx.lifecycle:lifecycle-process:2.8.1") // Required for ProcessLifecycleOwner
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.3")
 
-    // Jetpack Compose
+    // Jetpack Compose (optional)
+    implementation(platform("androidx.compose:compose-bom:2024.09.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
@@ -81,7 +73,6 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // Lottie Animations
+    // Lottie animations
     implementation("com.airbnb.android:lottie:6.3.0")
 }
-

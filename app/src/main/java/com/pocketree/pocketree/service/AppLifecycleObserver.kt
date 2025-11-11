@@ -1,20 +1,25 @@
-package com.pocketree.pocketree.data
+package com.pocketree.pocketree.service
 
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleObserver
-import androidx.lifecycle.OnLifecycleEvent
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 
-class AppLifecycleObserver : LifecycleObserver {
+object AppLifecycleObserver : DefaultLifecycleObserver {
 
-    @OnLifecycleEvent(Lifecycle.Event.ON_START)
-    fun onEnterForeground() {
-        // App enters foreground
-        println("App in foreground")
+    interface Listener {
+        fun onBackgrounded() {}
+        fun onForegrounded() {}
     }
 
-    @OnLifecycleEvent(Lifecycle.Event.ON_STOP)
-    fun onEnterBackground() {
-        // App enters background
-        println("App in background")
+    private val listeners = mutableSetOf<Listener>()
+
+    fun register(l: Listener) { listeners.add(l) }
+    fun unregister(l: Listener) { listeners.remove(l) }
+
+    override fun onStart(owner: LifecycleOwner) {
+        listeners.forEach { it.onForegrounded() }
+    }
+
+    override fun onStop(owner: LifecycleOwner) {
+        listeners.forEach { it.onBackgrounded() }
     }
 }
