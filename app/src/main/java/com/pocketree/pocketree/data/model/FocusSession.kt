@@ -3,12 +3,12 @@ package com.pocketree.pocketree.data.model
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "focus_sessions")
+@Entity
 data class FocusSession(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val startTs: Long,
-    val endTs: Long,
-    val durationSec: Int,
+    @PrimaryKey(autoGenerate = true)
+    val id: Int = 0,
+    val durationMinutes: Int,
+    val timestamp: Long,
     val completed: Boolean,
-    val treeType: String?
+    val treeType: String? = null
 )

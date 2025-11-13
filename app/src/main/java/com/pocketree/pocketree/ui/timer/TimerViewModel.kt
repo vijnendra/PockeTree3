@@ -20,46 +20,40 @@ class TimerViewModel(
 
     private var timer: CountDownTimer? = null
     private var startTs: Long = 0
-    private var durationMs: Long = 0
-    private var finished = false
-
-    // total planned duration (25 min for testing)
     val plannedDurationMs = 25 * 60 * 1000L
 
-    /** start the timer **/
+
     fun startSession() {
         startTs = System.currentTimeMillis()
-        durationMs = plannedDurationMs
-        finished = false
-        timer = object : CountDownTimer(durationMs, 1000) {
+        timer = object : CountDownTimer(plannedDurationMs, 1000) {
             override fun onTick(msLeft: Long) {
-                _timeLeft.value = msLeft
+                _timeLeft.postValue(msLeft)
             }
 
             override fun onFinish() {
-                finished = true
-                saveSession(true)
+                saveSession(success = true)
             }
         }.start()
     }
 
-    /** cancel timer when user leaves early **/
-    fun cancelSessionAsFailed() {
+    fun cancelSession() {
         timer?.cancel()
-        saveSession(false)
+        saveSession(success = false)
     }
 
     private fun saveSession(success: Boolean) {
         val endTs = System.currentTimeMillis()
+        val minutes = ((endTs - startTs) / 60000).toInt().coerceAtLeast(0)
+
         val session = FocusSession(
-            startTs = startTs,
-            endTs = endTs,
-            durationSec = ((endTs - startTs) / 1000).toInt(),
+            durationMinutes = minutes,
+            timestamp = endTs,
             completed = success,
-            treeType = if (success) "oak" else null
+            treeType = if (success) "oak" else "withered"
         )
+
         viewModelScope.launch {
-            repo.save(session)
+            repo.addSession(session)
         }
     }
 }
