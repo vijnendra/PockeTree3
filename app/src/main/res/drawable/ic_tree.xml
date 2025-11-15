@@ -1,0 +1,29 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="200dp"
+    android:viewportWidth="200"
+    android:viewportHeight="200">
+    <!-- trunk -->
+    <path
+        android:fillColor="#5D4037"
+        android:pathData="M90,140 L110,140 L110,100 L90,100 z"/>
+    <!-- foliage - three circles approximated with paths -->
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M100,40
+            C76,40 60,60 60,82
+            C60,90 66,96 74,98
+            C68,108 68,122 82,126
+            C82,126 120,126 120,126
+            C134,122 134,108 128,98
+            C136,96 142,90 142,82
+            C142,60 126,40 100,40z"/>
+    <!-- a lighter leaf cluster -->
+    <path
+        android:fillColor="#66BB6A"
+        android:pathData="M78,78
+            C70,78 64,84 64,92
+            C64,100 70,106 78,106
+            C86,106 92,100 92,92
+            C92,84 86,78 78,78z"/>
+</vector>
