@@ -3,15 +3,12 @@ package com.pocketree.pocketree.ui.forest
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.pocketree.pocketree.R
@@ -21,40 +18,33 @@ fun ForestTreeItem(
     duration: Int,
     wasWithered: Boolean
 ) {
-    Card(
+    Box(
         modifier = Modifier
-            .size(110.dp)
-            .padding(6.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            .padding(8.dp)
+            .size(90.dp)
+            .background(
+                MaterialTheme.colorScheme.surface,
+                RoundedCornerShape(12.dp)
+            ),
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Image(
-                painter = painterResource(id = R.drawable.ic_tree),
-                contentDescription = "Tree",
-                modifier = Modifier
-                    .size(70.dp)
-                    .alpha(if (wasWithered) 0.4f else 1f)
+                painter = painterResource(
+                    if (wasWithered)
+                        R.drawable.ic_tree_red_seed     // withered → seed only
+                    else
+                        R.drawable.ic_tree_red_full     // completed → full fruit tree
+                ),
+                contentDescription = null,
+                modifier = Modifier.size(50.dp)
             )
 
-            if (wasWithered) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .align(Alignment.TopEnd)
-                        .background(Color.Red, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.ic_close),
-                        contentDescription = "X",
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
+            Spacer(Modifier.height(6.dp))
+
+            Text("$duration min")
         }
     }
 }

@@ -102,8 +102,7 @@ fun TimerScreen(
                         // Use CollapseAnimation + AnimatedTree with overlay
                         CollapseAnimation(trigger = backgroundWithered) {
                             AnimatedTree(
-                                stage = treeStage,
-                                overlay = { WitherOverlay(visible = backgroundWithered) }
+                                stage = treeStage
                             )
                         }
                     }
