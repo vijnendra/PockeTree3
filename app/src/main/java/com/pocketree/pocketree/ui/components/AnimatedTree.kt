@@ -2,15 +2,18 @@ package com.pocketree.pocketree.ui.components
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.*
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.pocketree.pocketree.R
+
+// REQUIRED FIX — this import removes the "State<Float> cannot serve as delegate" error
+import androidx.compose.runtime.getValue
 
 enum class TreeStage(val scale: Float, val alpha: Float) {
     SEED(0.15f, 0.30f),
@@ -23,15 +26,15 @@ enum class TreeStage(val scale: Float, val alpha: Float) {
 fun AnimatedTree(
     stage: TreeStage = TreeStage.SEED,
     modifier: Modifier = Modifier,
-    animate: Boolean = true
+    animate: Boolean = true,
+    overlay: (@Composable () -> Unit)? = null
 ) {
     val animatedScale by animateFloatAsState(
         targetValue = stage.scale,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
-        ),
-        label = ""
+        ), label = ""
     )
 
     val animatedAlpha by animateFloatAsState(
@@ -47,8 +50,7 @@ fun AnimatedTree(
         animationSpec = infiniteRepeatable(
             animation = tween(2800),
             repeatMode = RepeatMode.Reverse
-        ),
-        label = ""
+        ), label = ""
     )
 
     Box(
@@ -65,7 +67,9 @@ fun AnimatedTree(
         Image(
             painter = painterResource(R.drawable.ic_tree),
             contentDescription = "Animated Tree",
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.size(180.dp)
         )
+
+        overlay?.invoke()
     }
 }

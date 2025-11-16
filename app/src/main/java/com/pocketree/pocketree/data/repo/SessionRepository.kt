@@ -1,14 +1,10 @@
-package com.pocketree.pocketree.data.repo
+package com.pocketree.pocketree.data.repository
 
 import com.pocketree.pocketree.data.db.FocusSessionDao
 import com.pocketree.pocketree.data.model.FocusSession
 import kotlinx.coroutines.flow.Flow
 
-/**
- * Repository for Focus Sessions.
- * Provides all required database operations used by ViewModels.
- */
-class FocusRepository(
+class SessionRepository(
     private val dao: FocusSessionDao
 ) {
 
@@ -24,14 +20,12 @@ class FocusRepository(
     suspend fun getUniqueDays(): List<String> =
         dao.getUniqueDays()
 
-    suspend fun insertSession(
-        durationMinutes: Int,
-        wasWithered: Boolean
-    ) {
-        val session = FocusSession(
-            durationMinutes = durationMinutes,
-            wasWithered = wasWithered
+    suspend fun insertSession(durationMinutes: Int, wasWithered: Boolean) {
+        dao.insertSession(
+            FocusSession(
+                durationMinutes = durationMinutes,
+                wasWithered = wasWithered
+            )
         )
-        dao.insertSession(session)
     }
 }

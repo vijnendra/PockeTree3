@@ -1,59 +1,60 @@
 package com.pocketree.pocketree.ui.timer
 
 import android.app.Application
-import android.os.CountDownTimer
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
-import com.pocketree.pocketree.data.model.FocusSession
-import com.pocketree.pocketree.data.repo.FocusRepository
+import com.pocketree.pocketree.PockeTreeApp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
 
-class TimerViewModel(
-    private val repo: FocusRepository,
-    app: Application
-) : AndroidViewModel(app) {
+/**
+ * Simple ViewModel that stores start timestamp and saves sessions via repository.
+ * Uses PockeTreeApp.instance.repository (created earlier).
+ */
+class TimerViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val _timeLeft = MutableLiveData<Long>()
-    val timeLeft: LiveData<Long> get() = _timeLeft
+    private val repository = PockeTreeApp.instance.repository
 
-    private var timer: CountDownTimer? = null
-    private var startTs: Long = 0
-    val plannedDurationMs = 25 * 60 * 1000L
-
+    // timestamp when current session started (millis). 0 when none running.
+    private var sessionStartMs: Long = 0L
 
     fun startSession() {
-        startTs = System.currentTimeMillis()
-        timer = object : CountDownTimer(plannedDurationMs, 1000) {
-            override fun onTick(msLeft: Long) {
-                _timeLeft.postValue(msLeft)
-            }
-
-            override fun onFinish() {
-                saveSession(success = true)
-            }
-        }.start()
+        sessionStartMs = System.currentTimeMillis()
     }
 
     fun cancelSession() {
-        timer?.cancel()
-        saveSession(success = false)
+        sessionStartMs = 0L
     }
 
-    private fun saveSession(success: Boolean) {
-        val endTs = System.currentTimeMillis()
-        val minutes = ((endTs - startTs) / 60000).toInt().coerceAtLeast(0)
+    /**
+     * End the current session and save to DB.
+     * - durationMinutes: derived from elapsedMs if provided, otherwise computed from start time.
+     * - wasWithered: true if the session ended because of background/withering.
+     */
+    fun endSessionAndSave(wasWithered: Boolean, elapsedSecondsOverride: Long? = null) {
+        val start = sessionStartMs
+        val now = System.currentTimeMillis()
 
-        val session = FocusSession(
-            durationMinutes = minutes,
-            timestamp = endTs,
-            completed = success,
-            treeType = if (success) "oak" else "withered"
-        )
+        // compute elapsed in seconds: prefer override (useful if you zeroed timer)
+        val elapsedSec = elapsedSecondsOverride ?: if (start > 0L) {
+            TimeUnit.MILLISECONDS.toSeconds(now - start)
+        } else {
+            0L
+        }
 
-        viewModelScope.launch {
-            repo.addSession(session)
+        val minutes = (elapsedSec / 60L).toInt()
+
+        // reset session start
+        sessionStartMs = 0L
+
+        // Save to DB on IO dispatcher
+        viewModelScope.launch(Dispatchers.IO) {
+            // repository expects durationMinutes as Int, and wasWithered flag
+            repository.insertSession(
+                durationMinutes = minutes,
+                wasWithered = wasWithered
+            )
         }
     }
 }

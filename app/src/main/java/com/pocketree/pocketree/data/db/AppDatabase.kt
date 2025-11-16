@@ -6,7 +6,11 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.pocketree.pocketree.data.model.FocusSession
 
-@Database(entities = [FocusSession::class], version = 1, exportSchema = false)
+@Database(
+    entities = [FocusSession::class],
+    version = 1,
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun focusSessionDao(): FocusSessionDao
@@ -20,8 +24,10 @@ abstract class AppDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "pocketree.db"
-                ).build()
+                    "focus_db"
+                )
+                    .fallbackToDestructiveMigration()
+                    .build()
 
                 INSTANCE = instance
                 instance
