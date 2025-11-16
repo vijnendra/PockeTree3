@@ -15,8 +15,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.pocketree.pocketree.ui.components.AnimatedTree
 import com.pocketree.pocketree.ui.components.TreeStage
-import com.pocketree.pocketree.ui.components.CollapseAnimation
 import com.pocketree.pocketree.ui.components.WitherOverlay
+import com.pocketree.pocketree.ui.components.CollapseAnimation
 import com.pocketree.pocketree.ui.theme.LightGreen
 import com.pocketree.pocketree.ui.theme.SoftMint
 import kotlinx.coroutines.delay
@@ -29,25 +29,25 @@ fun TimerScreen(
     modifier: Modifier = Modifier
 ) {
     var running by remember { mutableStateOf(false) }
-    var secondsLeft by remember { mutableStateOf(25 * 60) } // default 25 minutes
+    var secondsLeft by remember { mutableStateOf(25 * 60) }
     var finished by remember { mutableStateOf(false) }
-    var backgroundWithered by remember { mutableStateOf(false) }
+    var treeWithered by remember { mutableStateOf(false) }
 
-    // Observe activity lifecycle to detect app going to background.
+    // Detect minimize / app switch / lock screen
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP && running) {
-                // App went to background while timer running → wither
-                backgroundWithered = true
+                treeWithered = true
                 running = false
                 finished = false
 
+                val elapsed = (25 * 60) - secondsLeft
                 viewModel.endSessionAndSave(
                     wasWithered = true,
-                    elapsedSecondsOverride = ((25 * 60) - secondsLeft).toLong().takeIf { it > 0 }
+                    elapsedSecondsOverride = elapsed.toLong()
                 )
-                // Zero out timer (tree withered)
+
                 secondsLeft = 0
             }
         }
@@ -55,14 +55,16 @@ fun TimerScreen(
         onDispose { lifecycle.removeObserver(observer) }
     }
 
-    Surface(modifier = modifier.fillMaxSize(), color = SoftMint) {
+    Surface(
+        modifier = modifier.fillMaxSize(),
+        color = SoftMint
+    ) {
         Column(
-            Modifier
-                .fillMaxSize()
-                .padding(20.dp),
+            Modifier.fillMaxSize().padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
+
             TopAppBar(
                 title = { Text("Pocketree", style = MaterialTheme.typography.titleLarge) },
                 actions = {
@@ -75,6 +77,7 @@ fun TimerScreen(
                 }
             )
 
+            // ---------------- TREE + TIMER CARD ----------------
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -84,29 +87,34 @@ fun TimerScreen(
                 colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
+
                 Column(
                     Modifier.fillMaxSize().padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
+
                     val treeStage =
                         when {
-                            backgroundWithered -> TreeStage.SEED
+                            treeWithered -> TreeStage.SEED
                             finished -> TreeStage.FULL
                             running && secondsLeft < 10 * 60 -> TreeStage.YOUNG
                             running -> TreeStage.SAPLING
                             else -> TreeStage.SEED
                         }
 
-                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        // Use CollapseAnimation + AnimatedTree with overlay
-                        CollapseAnimation(trigger = backgroundWithered) {
-                            AnimatedTree(
-                                stage = treeStage
-                            )
+                    // TREE BOX
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CollapseAnimation(trigger = treeWithered) {
+                            AnimatedTree(stage = treeStage)
                         }
+                        WitherOverlay(visible = treeWithered)
                     }
 
+                    // TIMER TEXT
                     Text(
                         text = formatTime(secondsLeft),
                         style = MaterialTheme.typography.titleMedium,
@@ -115,57 +123,58 @@ fun TimerScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
+                    // BUTTONS
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+
                         Button(
                             onClick = {
-                                // Toggle running
-                                if (!running) {
-                                    // starting session
-                                    viewModel.startSession()  // store start timestamp
-                                }
+                                if (!running) viewModel.startSession()
                                 running = !running
-                                backgroundWithered = false
+                                treeWithered = false
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = LightGreen)
                         ) {
                             Text(if (running) "Pause" else "Start")
                         }
 
-                        OutlinedButton(onClick = {
-                            // Reset without saving
-                            running = false
-                            finished = false
-                            backgroundWithered = false
-                            secondsLeft = 25 * 60
-                            viewModel.cancelSession()
-                        }) {
+                        OutlinedButton(
+                            onClick = {
+                                running = false
+                                finished = false
+                                treeWithered = false
+                                secondsLeft = 25 * 60
+                                viewModel.cancelSession()
+                            }
+                        ) {
                             Text("Reset")
                         }
                     }
                 }
             }
 
-            // Footer card: custom timer input
+            // ---------------- CUSTOM TIMER ----------------
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
             ) {
+                var customMinutes by remember { mutableStateOf("") }
+
                 Row(
                     modifier = Modifier.padding(12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Session length")
-                    var customMinutes by remember { mutableStateOf("") }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    Text("Session length")
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+
                         OutlinedTextField(
                             value = customMinutes,
-                            onValueChange = { customMinutes = it.filter { c -> c.isDigit() } },
+                            onValueChange = {
+                                customMinutes = it.filter { c -> c.isDigit() }
+                            },
                             modifier = Modifier.width(80.dp),
                             label = { Text("Minutes") },
                             singleLine = true
@@ -175,7 +184,7 @@ fun TimerScreen(
                             if (customMinutes.isNotEmpty()) {
                                 secondsLeft = customMinutes.toInt() * 60
                                 finished = false
-                                backgroundWithered = false
+                                treeWithered = false
                             }
                         }) {
                             Text("Set")
@@ -186,7 +195,7 @@ fun TimerScreen(
         }
     }
 
-    // Timer coroutine
+    // ----------- TIMER LOOP -----------
     LaunchedEffect(running) {
         while (running && secondsLeft > 0) {
             delay(1000L)
@@ -194,19 +203,18 @@ fun TimerScreen(
         }
 
         if (secondsLeft <= 0 && running) {
-            // natural completion
             running = false
             finished = true
 
-            // Save finished session (not withered)
             viewModel.endSessionAndSave(
                 wasWithered = false,
-                elapsedSecondsOverride = (((25 * 60) - 0).toLong())
+                elapsedSecondsOverride = (25 * 60).toLong()
             )
         }
     }
 }
 
+// ---------------- Helper ----------------
 private fun formatTime(seconds: Int): String {
     val s = seconds.coerceAtLeast(0)
     val mm = s / 60

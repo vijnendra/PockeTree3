@@ -9,9 +9,14 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.PockeTree">
+        <service
+            android:name=".service.FocusService"
+            android:foregroundServiceType="mediaPlayback|dataSync"
+            android:exported="false" />
 
 
-    <activity
+
+        <activity
             android:name=".TimerActivity"
             android:exported="false" />
 
