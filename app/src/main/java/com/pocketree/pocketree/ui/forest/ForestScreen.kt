@@ -9,6 +9,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.pocketree.pocketree.data.model.TreeSession
+import com.pocketree.pocketree.ui.components.ForestTreeItem
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -20,13 +22,23 @@ fun ForestScreen(viewModel: ForestViewModel) {
     var selectedTab by remember { mutableStateOf(0) }
     val tabs = listOf("Day", "Month", "Year", "Lifetime")
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
 
-        Text("Your Forest", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "Your Forest",
+            style = MaterialTheme.typography.titleLarge
+        )
 
         Spacer(Modifier.height(6.dp))
 
-        Text("🔥 Streak: $streak days", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "🔥 Streak: $streak days",
+            style = MaterialTheme.typography.titleMedium
+        )
 
         Spacer(Modifier.height(12.dp))
 
@@ -50,10 +62,10 @@ fun ForestScreen(viewModel: ForestViewModel) {
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 30.dp)
         ) {
-            items(sessions) { session ->
+            items(sessions) { session: TreeSession ->
                 ForestTreeItem(
                     duration = session.durationMinutes,
-                    wasWithered = session.wasWithered
+                    wasWithered = session.isWithered
                 )
             }
         }

@@ -18,7 +18,7 @@ fun AppNavHost(
     navController: NavHostController,
     modifier: Modifier = Modifier
 ) {
-    val repository = PockeTreeApp.instance.repository
+    val repository = PockeTreeApp.instance.treeSessionRepository
 
     NavHost(
         navController = navController,

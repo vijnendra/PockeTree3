@@ -20,7 +20,7 @@ fun AppNav(navController: NavHostController) {
             TimerScreen(navController = navController, viewModel = timerViewModel)
         }
         composable("forest") {
-            val repository = PockeTreeApp.instance.repository
+            val repository = PockeTreeApp.instance.treeSessionRepository
             val forestViewModel: ForestViewModel = viewModel(
                 factory = ForestViewModelFactory(repository)
             )
