@@ -3,57 +3,51 @@ package com.pocketree.pocketree.ui.timer
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.pocketree.pocketree.PockeTreeApp
+import com.pocketree.pocketree.data.model.TreeSession
+import com.pocketree.pocketree.data.repository.TreeSessionRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
-/**
- * Simple ViewModel that stores start timestamp and saves sessions via repository.
- * Uses PockeTreeApp.instance.repository (created earlier).
- */
 class TimerViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository = PockeTreeApp.instance.repository
+    private val repo = TreeSessionRepository(application)
 
-    // timestamp when current session started (millis). 0 when none running.
     private var sessionStartMs: Long = 0L
+    private var plannedMinutes: Int = 0
 
-    fun startSession() {
+    fun startSession(planned: Int) {
         sessionStartMs = System.currentTimeMillis()
+        plannedMinutes = planned
     }
 
     fun cancelSession() {
         sessionStartMs = 0L
     }
 
-    /**
-     * End the current session and save to DB.
-     * - durationMinutes: derived from elapsedMs if provided, otherwise computed from start time.
-     * - wasWithered: true if the session ended because of background/withering.
-     */
     fun endSessionAndSave(wasWithered: Boolean, elapsedSecondsOverride: Long? = null) {
         val start = sessionStartMs
         val now = System.currentTimeMillis()
 
-        // compute elapsed in seconds: prefer override (useful if you zeroed timer)
-        val elapsedSec = elapsedSecondsOverride ?: if (start > 0L) {
-            TimeUnit.MILLISECONDS.toSeconds(now - start)
-        } else {
-            0L
-        }
+        val elapsedSec = elapsedSecondsOverride ?: TimeUnit.MILLISECONDS
+            .toSeconds(now - start)
 
-        val minutes = (elapsedSec / 60L).toInt()
+        val duration = (elapsedSec / 60).toInt().coerceAtLeast(0)
+        val finalDuration =
+            if (wasWithered) duration.coerceAtMost(plannedMinutes)
+            else plannedMinutes
 
-        // reset session start
         sessionStartMs = 0L
 
-        // Save to DB on IO dispatcher
         viewModelScope.launch(Dispatchers.IO) {
-            // repository expects durationMinutes as Int, and wasWithered flag
-            repository.insertSession(
-                durationMinutes = minutes,
-                wasWithered = wasWithered
+            repo.insert(
+                TreeSession(
+                    plannedMinutes = plannedMinutes,
+                    durationMinutes = finalDuration,
+                    startTime = start,
+                    endTime = now,
+                    isWithered = wasWithered
+                )
             )
         }
     }

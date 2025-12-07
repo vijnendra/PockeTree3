@@ -4,16 +4,16 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import com.pocketree.pocketree.data.model.FocusSession
+import com.pocketree.pocketree.data.model.TreeSession
 
 @Database(
-    entities = [FocusSession::class],
-    version = 1,
+    entities = [TreeSession::class],
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
 
-    abstract fun focusSessionDao(): FocusSessionDao
+    abstract fun treeSessionDao(): TreeSessionDao
 
     companion object {
         @Volatile
@@ -24,7 +24,7 @@ abstract class AppDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "focus_db"
+                    "tree_db"
                 )
                     .fallbackToDestructiveMigration()
                     .build()

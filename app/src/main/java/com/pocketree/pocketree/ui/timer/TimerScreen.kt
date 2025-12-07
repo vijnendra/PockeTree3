@@ -62,13 +62,14 @@ fun TimerScreen(
                 running = false
                 finished = false
 
-                val elapsed = sessionSeconds - secondsLeft
+                val elapsed = maxSeconds - secondsLeft
                 viewModel.endSessionAndSave(
                     wasWithered = true,
                     elapsedSecondsOverride = elapsed.toLong()
                 )
 
                 secondsLeft = 0
+                maxSeconds = 0
             }
         }
         lifecycle.addObserver(observer)
@@ -158,7 +159,9 @@ fun TimerScreen(
             secondsLeft -= 1
         }
 
-        if (secondsLeft <= 0 && running) {
+        if (!running) return@LaunchedEffect
+
+        if (secondsLeft <= 0) {
             running = false
             finished = true
 
@@ -358,8 +361,7 @@ private fun SessionLengthCard(
 }
 
 private fun formatTime(seconds: Int): String {
-    val s = seconds.coerceAtLeast(0)
-    val mm = s / 60
-    val ss = s % 60
-    return "%02d:%02d".format(mm, ss)
+    val mm = seconds / 60
+    val ss = seconds % 60
+    return "%02d:%02d".format(mm.coerceAtLeast(0), ss.coerceAtLeast(0))
 }

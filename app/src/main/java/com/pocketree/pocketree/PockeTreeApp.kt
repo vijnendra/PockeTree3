@@ -1,20 +1,18 @@
 package com.pocketree.pocketree
 
 import android.app.Application
-import com.pocketree.pocketree.data.db.AppDatabase
-import com.pocketree.pocketree.data.repository.SessionRepository
+import com.pocketree.pocketree.data.repository.TreeSessionRepository
 
 class PockeTreeApp : Application() {
 
-    lateinit var repository: SessionRepository
+    lateinit var treeSessionRepository: TreeSessionRepository
         private set
 
     override fun onCreate() {
         super.onCreate()
         instance = this
 
-        val db = AppDatabase.getInstance(this)
-        repository = SessionRepository(db.focusSessionDao())
+        treeSessionRepository = TreeSessionRepository(this)
     }
 
     companion object {
