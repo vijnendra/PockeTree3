@@ -15,7 +15,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.pocketree.pocketree.ui.components.AnimatedTree
-import com.pocketree.pocketree.ui.components.CollapseAnimation
 import com.pocketree.pocketree.ui.components.TreeStage
 import com.pocketree.pocketree.ui.components.WitherOverlay
 import kotlinx.coroutines.delay
@@ -54,7 +53,7 @@ fun TimerScreen(
             if (event == Lifecycle.Event.ON_STOP && running) {
                 val total = sessionSeconds.coerceAtLeast(1)
                 val progress = 1f - (secondsLeft.coerceAtLeast(0) / total.toFloat())
-                val isLong = sessionSeconds >= (60 * 60) // explicit Int multiplication
+                val isLong = sessionSeconds >= (60 * 60)
 
                 val stageNow = stageFromProgress(progress, isLong, finished, running)
                 lastStageBeforeWither = stageNow
@@ -177,6 +176,7 @@ fun TimerScreen(
     }
 }
 
+/* ---------------- FocusTreeCard (NO CollapseAnimation) ---------------- */
 @Composable
 private fun FocusTreeCard(
     modifier: Modifier,
@@ -225,14 +225,14 @@ private fun FocusTreeCard(
                     .weight(1f),
                 contentAlignment = Alignment.Center
             ) {
-                CollapseAnimation(trigger = treeWithered) {
-                    AnimatedTree(
-                        stage = visualStage,
-                        animate = running && !treeWithered,
-                        treeWithered = treeWithered
-                    )
-                }
+                // Direct static drawing of tree; collapse animation removed
+                AnimatedTree(
+                    stage = visualStage,
+                    animate = false,
+                    treeWithered = treeWithered
+                )
 
+                // wither overlay still present (red X). Remove this call too if you want no overlay.
                 WitherOverlay(
                     visible = treeWithered,
                     holdMs = 900L,
@@ -278,6 +278,7 @@ private fun FocusTreeCard(
     }
 }
 
+/* ---------------- SessionLengthCard ---------------- */
 @Composable
 private fun SessionLengthCard(
     minutesText: String,
