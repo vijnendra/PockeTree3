@@ -30,10 +30,10 @@ fun TimerScreen(
 ) {
     var running by remember { mutableStateOf(false) }
     var secondsLeft by remember { mutableStateOf(25 * 60) }
+    var maxSeconds by remember { mutableStateOf(25 * 60) }
     var finished by remember { mutableStateOf(false) }
     var treeWithered by remember { mutableStateOf(false) }
 
-    // Detect minimize / app switch / lock screen
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -42,13 +42,14 @@ fun TimerScreen(
                 running = false
                 finished = false
 
-                val elapsed = (25 * 60) - secondsLeft
+                val elapsed = maxSeconds - secondsLeft
                 viewModel.endSessionAndSave(
                     wasWithered = true,
                     elapsedSecondsOverride = elapsed.toLong()
                 )
 
                 secondsLeft = 0
+                maxSeconds = 0
             }
         }
         lifecycle.addObserver(observer)
@@ -77,7 +78,6 @@ fun TimerScreen(
                 }
             )
 
-            // ---------------- TREE + TIMER CARD ----------------
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -93,17 +93,15 @@ fun TimerScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-
                     val treeStage =
                         when {
                             treeWithered -> TreeStage.SEED
                             finished -> TreeStage.FULL
-                            running && secondsLeft < 10 * 60 -> TreeStage.YOUNG
+                            running && secondsLeft < (maxSeconds * 0.4f) -> TreeStage.YOUNG
                             running -> TreeStage.SAPLING
                             else -> TreeStage.SEED
                         }
 
-                    // TREE BOX
                     Box(
                         modifier = Modifier.weight(1f),
                         contentAlignment = Alignment.Center
@@ -114,21 +112,19 @@ fun TimerScreen(
                         WitherOverlay(visible = treeWithered)
                     }
 
-                    // TIMER TEXT
-                    Text(
-                        text = formatTime(secondsLeft),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    Text(formatTime(secondsLeft))
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // BUTTONS
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
 
                         Button(
                             onClick = {
-                                if (!running) viewModel.startSession()
+                                if (!running) {
+                                    val planned = (secondsLeft / 60).coerceAtLeast(1)
+                                    viewModel.startSession(planned)
+                                    maxSeconds = secondsLeft
+                                }
                                 running = !running
                                 treeWithered = false
                             },
@@ -143,6 +139,7 @@ fun TimerScreen(
                                 finished = false
                                 treeWithered = false
                                 secondsLeft = 25 * 60
+                                maxSeconds = 25 * 60
                                 viewModel.cancelSession()
                             }
                         ) {
@@ -152,7 +149,6 @@ fun TimerScreen(
                 }
             }
 
-            // ---------------- CUSTOM TIMER ----------------
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
@@ -183,6 +179,7 @@ fun TimerScreen(
                         Button(onClick = {
                             if (customMinutes.isNotEmpty()) {
                                 secondsLeft = customMinutes.toInt() * 60
+                                maxSeconds = secondsLeft
                                 finished = false
                                 treeWithered = false
                             }
@@ -195,29 +192,28 @@ fun TimerScreen(
         }
     }
 
-    // ----------- TIMER LOOP -----------
     LaunchedEffect(running) {
         while (running && secondsLeft > 0) {
             delay(1000L)
             secondsLeft -= 1
         }
 
-        if (secondsLeft <= 0 && running) {
+        if (!running) return@LaunchedEffect
+
+        if (secondsLeft <= 0) {
             running = false
             finished = true
 
             viewModel.endSessionAndSave(
                 wasWithered = false,
-                elapsedSecondsOverride = (25 * 60).toLong()
+                elapsedSecondsOverride = maxSeconds.toLong()
             )
         }
     }
 }
 
-// ---------------- Helper ----------------
 private fun formatTime(seconds: Int): String {
-    val s = seconds.coerceAtLeast(0)
-    val mm = s / 60
-    val ss = s % 60
-    return "%02d:%02d".format(mm, ss)
+    val mm = seconds / 60
+    val ss = seconds % 60
+    return "%02d:%02d".format(mm.coerceAtLeast(0), ss.coerceAtLeast(0))
 }

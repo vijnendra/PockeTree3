@@ -35,6 +35,11 @@ android {
         allWarningsAsErrors = false
         freeCompilerArgs += "-Xopt-in=kotlin.RequiresOptIn"
     }
+    buildTypes {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
 }
 
 dependencies {
