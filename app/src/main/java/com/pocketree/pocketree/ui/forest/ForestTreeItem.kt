@@ -18,6 +18,34 @@ fun ForestTreeItem(
     duration: Int,
     wasWithered: Boolean
 ) {
+    // Determine "stage index" from duration (minutes). This mirrors the thresholds in TimerScreen.
+    val stage = when {
+        duration >= 60 -> "full"
+        duration >= 20 -> "young"
+        duration >= 5 -> "small"
+        duration >= 1 -> "sprout"
+        else -> "seed"
+    }
+
+    // If withered, pick the dead sprite corresponding to that stage.
+    val drawable = if (wasWithered) {
+        when (stage) {
+            "full" -> R.drawable.ic_tree_dead_full
+            "young" -> R.drawable.ic_tree_dead_small
+            "small" -> R.drawable.ic_tree_dead_small
+            "sprout" -> R.drawable.ic_tree_dead_sprout
+            else -> R.drawable.ic_tree_dead_seed
+        }
+    } else {
+        when (stage) {
+            "full" -> R.drawable.ic_tree_full
+            "young" -> R.drawable.ic_tree_young
+            "small" -> R.drawable.ic_tree_small
+            "sprout" -> R.drawable.ic_tree_sprout
+            else -> R.drawable.ic_tree_seed
+        }
+    }
+
     Box(
         modifier = Modifier
             .padding(8.dp)
@@ -32,12 +60,7 @@ fun ForestTreeItem(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Image(
-                painter = painterResource(
-                    if (wasWithered)
-                        R.drawable.ic_tree_red_seed     // withered → seed only
-                    else
-                        R.drawable.ic_tree_red_full     // completed → full fruit tree
-                ),
+                painter = painterResource(drawable),
                 contentDescription = null,
                 modifier = Modifier.size(50.dp)
             )

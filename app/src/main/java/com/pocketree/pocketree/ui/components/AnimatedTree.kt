@@ -1,83 +1,127 @@
 package com.pocketree.pocketree.ui.components
 
+import android.graphics.BitmapFactory
+import android.util.Log
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.pocketree.pocketree.R
 
-enum class TreeStage(val scale: Float, val alpha: Float) {
-    SEED(0.25f, 0.40f),
-    SAPLING(0.55f, 0.70f),
-    YOUNG(0.80f, 0.90f),
-    FULL(1.0f, 1.0f)
+enum class TreeStage {
+    SEED, SAPLING, YOUNG, FULL
 }
 
+/**
+ * AnimatedTree (robust):
+ * - uses BitmapFactory to query intrinsic px size synchronously
+ * - computes a stable scaleUpFactor with explicit Density conversion
+ * - avoids relying on painter.intrinsicSize or unstable toPx calls
+ */
 @Composable
 fun AnimatedTree(
     stage: TreeStage,
     modifier: Modifier = Modifier,
-    animate: Boolean = true
+    animate: Boolean = true,
+    treeWithered: Boolean = false,
+    displaySizeNormal: Dp = 220.dp,
+    displaySizeWithered: Dp = 260.dp
 ) {
-    // Growth
-    val scale by animateFloatAsState(
-        targetValue = stage.scale,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMedium
-        ),
+    // resource mapping (ensure these exist)
+    val healthyRes = when (stage) {
+        TreeStage.SEED -> R.drawable.ic_tree_seed
+        TreeStage.SAPLING -> R.drawable.ic_tree_sprout
+        TreeStage.YOUNG -> R.drawable.ic_tree_small
+        TreeStage.FULL -> R.drawable.ic_tree_full
+    }
+    val deadRes = when (stage) {
+        TreeStage.SEED -> R.drawable.ic_tree_dead_seed
+        TreeStage.SAPLING -> R.drawable.ic_tree_dead_sprout
+        TreeStage.YOUNG -> R.drawable.ic_tree_dead_small
+        TreeStage.FULL -> R.drawable.ic_tree_dead_full
+    }
+
+    val spriteRes = if (treeWithered) deadRes else healthyRes
+    val context = LocalContext.current
+    val density = LocalDensity.current
+
+    // Query bitmap size without loading full bitmap
+    val intrinsicPxPair = remember(spriteRes) {
+        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeResource(context.resources, spriteRes, opts)
+        val w = if (opts.outWidth > 0) opts.outWidth else 1
+        val h = if (opts.outHeight > 0) opts.outHeight else 1
+        Pair(w, h)
+    }
+
+    // compute display px deterministically
+    val displayDp = if (treeWithered) displaySizeWithered else displaySizeNormal
+    val displayPx = with(density) { displayDp.toPx() }
+
+    // intrinsic width in px
+    val intrinsicPx = intrinsicPxPair.first.toFloat().coerceAtLeast(1f)
+
+    // compute scaleUp (only upscale, don't downscale intrinsic)
+    val scaleUpFactor = (displayPx / intrinsicPx).coerceAtLeast(1f)
+
+    LaunchedEffect(spriteRes) {
+        Log.d("AnimatedTree", "spriteRes=$spriteRes intrinsic=${intrinsicPxPair.first}x${intrinsicPxPair.second} scaleUp=${"%.2f".format(scaleUpFactor)}")
+    }
+
+    // animations
+    val targetScaleBase = when {
+        treeWithered -> 1.08f
+        animate -> 1.03f
+        else -> 1f
+    }
+    val animatedBase by animateFloatAsState(
+        targetValue = targetScaleBase,
+        animationSpec = tween(durationMillis = 700),
         label = ""
     )
 
-    val alpha by animateFloatAsState(
-        targetValue = stage.alpha,
-        animationSpec = tween(700),
-        label = ""
-    )
-
-    // Wind sway
-    val wind = rememberInfiniteTransition()
-    val sway by wind.animateFloat(
-        initialValue = -2f,
-        targetValue = 2f,
+    val sway by rememberInfiniteTransition().animateFloat(
+        initialValue = if (animate && !treeWithered) -2f else 0f,
+        targetValue = if (animate && !treeWithered) 2f else 0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2600),
+            animation = tween(durationMillis = if (animate && !treeWithered) 2600 else 1),
             repeatMode = RepeatMode.Reverse
         ),
         label = ""
     )
 
-    // ------------------------
-    // 🎨 SELECT ONLY RED TREE
-    // ------------------------
-    val sprite = when (stage) {
-        TreeStage.SEED -> R.drawable.ic_tree_red_seed
-        TreeStage.SAPLING -> R.drawable.ic_tree_red_sapling
-        TreeStage.YOUNG -> R.drawable.ic_tree_red_small
-        TreeStage.FULL -> R.drawable.ic_tree_red_full
-    }
+    val finalScale = animatedBase * scaleUpFactor
+    val alpha = 1f
+    val displayDpSize = displayDp
 
     Box(
         modifier = modifier
-            .size(200.dp)
+            .size(displayDpSize)
             .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-                rotationZ = if (animate) sway else 0f
+                scaleX = finalScale
+                scaleY = finalScale
+                rotationZ = sway
                 this.alpha = alpha
             },
         contentAlignment = Alignment.Center
     ) {
+        val painter = painterResource(id = spriteRes)
         Image(
-            painter = painterResource(sprite),
-            contentDescription = "Red Fruit Tree",
-            modifier = Modifier.fillMaxSize()
+            painter = painter,
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.matchParentSize()
         )
     }
 }
