@@ -27,7 +27,7 @@ fun TimerScreen(
     modifier: Modifier = Modifier
 ) {
     var running by remember { mutableStateOf(false) }
-    var sessionSeconds by remember { mutableStateOf(25 * 60) } // Int
+    var sessionSeconds by remember { mutableStateOf(25 * 60) } // Int seconds
     var secondsLeft by remember { mutableStateOf(sessionSeconds) }
     var finished by remember { mutableStateOf(false) }
     var treeWithered by remember { mutableStateOf(false) }
@@ -62,14 +62,15 @@ fun TimerScreen(
                 running = false
                 finished = false
 
-                val elapsed = maxSeconds - secondsLeft
+                // elapsed seconds while app was running until background
+                val elapsed = (sessionSeconds - secondsLeft).coerceAtLeast(0)
                 viewModel.endSessionAndSave(
                     wasWithered = true,
                     elapsedSecondsOverride = elapsed.toLong()
                 )
 
+                // freeze timer visually
                 secondsLeft = 0
-                maxSeconds = 0
             }
         }
         lifecycle.addObserver(observer)
@@ -114,7 +115,9 @@ fun TimerScreen(
                 lastStageBeforeWither = lastStageBeforeWither,
                 onStartPauseClick = {
                     if (!running) {
-                        viewModel.startSession()
+                        // pass planned minutes to ViewModel API (it expects minutes)
+                        val plannedMinutes = (sessionSeconds / 60).coerceAtLeast(1)
+                        viewModel.startSession(plannedMinutes)
                         finished = false
                         treeWithered = false
                     }
@@ -171,6 +174,7 @@ fun TimerScreen(
 
             lastStageBeforeWither = stageFromProgress(progress, isLong, true, false)
 
+            // Save finished session — pass total planned seconds as elapsed override so ViewModel computes duration correctly.
             viewModel.endSessionAndSave(
                 wasWithered = false,
                 elapsedSecondsOverride = sessionSeconds.toLong()
