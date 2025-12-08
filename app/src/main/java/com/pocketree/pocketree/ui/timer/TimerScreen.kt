@@ -1,5 +1,6 @@
 package com.pocketree.pocketree.ui.timer
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -8,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -19,6 +21,19 @@ import com.pocketree.pocketree.ui.components.TreeStage
 import com.pocketree.pocketree.ui.components.WitherOverlay
 import kotlinx.coroutines.delay
 
+private const val PREFS_NAME = "pocketree_prefs"
+private const val KEY_WITHERED_FLAG = "show_withered"
+private const val KEY_WITHERED_STAGE = "last_withered_stage"
+
+/**
+ * TimerScreen.kt (minimal-banner version)
+ *
+ * - Minimal (least-invasive) banner when persisted withered tree exists:
+ *   centered two-line message, no action buttons.
+ * - Persisted wither is cleared when user starts/sets/resets.
+ * - Wither overlay animation runs only for fresh wither events.
+ */
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TimerScreen(
@@ -26,13 +41,49 @@ fun TimerScreen(
     viewModel: TimerViewModel = viewModel(),
     modifier: Modifier = Modifier
 ) {
+    val ctx = LocalContext.current
+    val prefs = remember { ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
+
+    fun saveWitheredStage(stage: TreeStage) {
+        prefs.edit().putBoolean(KEY_WITHERED_FLAG, true)
+            .putString(KEY_WITHERED_STAGE, stage.name)
+            .apply()
+    }
+    fun clearWitheredFlag() {
+        prefs.edit().putBoolean(KEY_WITHERED_FLAG, false)
+            .remove(KEY_WITHERED_STAGE)
+            .apply()
+    }
+    fun readWitheredStage(): TreeStage? {
+        if (!prefs.getBoolean(KEY_WITHERED_FLAG, false)) return null
+        val name = prefs.getString(KEY_WITHERED_STAGE, null) ?: return null
+        return try { TreeStage.valueOf(name) } catch (e: Exception) { null }
+    }
+
+    // ------------------ UI / timer state ------------------
     var running by remember { mutableStateOf(false) }
-    var sessionSeconds by remember { mutableStateOf(25 * 60) } // Int seconds
+    var sessionSeconds by remember { mutableStateOf(25 * 60) }
     var secondsLeft by remember { mutableStateOf(sessionSeconds) }
     var finished by remember { mutableStateOf(false) }
+
     var treeWithered by remember { mutableStateOf(false) }
+    var persistedWithered by remember { mutableStateOf(false) }
     var lastStageBeforeWither by remember { mutableStateOf(TreeStage.SEED) }
+
     var customMinutes by remember { mutableStateOf("") }
+
+    // Read persisted wither once on composition
+    LaunchedEffect(Unit) {
+        val persisted = readWitheredStage()
+        if (persisted != null) {
+            persistedWithered = true
+            treeWithered = true
+            lastStageBeforeWither = persisted
+            secondsLeft = 0
+            running = false
+            finished = false
+        }
+    }
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
 
@@ -48,28 +99,29 @@ fun TimerScreen(
         }
     }
 
+    // ------------------ Handle app background -> wither ------------------
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP && running) {
                 val total = sessionSeconds.coerceAtLeast(1)
-                val progress = 1f - (secondsLeft.coerceAtLeast(0) / total.toFloat())
+                val progress = 1f - (secondsLeft.toFloat() / total.toFloat())
                 val isLong = sessionSeconds >= (60 * 60)
 
-                val stageNow = stageFromProgress(progress, isLong, finished, running)
-                lastStageBeforeWither = stageNow
+                val nowStage = stageFromProgress(progress, isLong, finished, running)
+                lastStageBeforeWither = nowStage
 
                 treeWithered = true
+                persistedWithered = true
                 running = false
                 finished = false
 
-                // elapsed seconds while app was running until background
                 val elapsed = (sessionSeconds - secondsLeft).coerceAtLeast(0)
                 viewModel.endSessionAndSave(
                     wasWithered = true,
                     elapsedSecondsOverride = elapsed.toLong()
                 )
 
-                // freeze timer visually
+                saveWitheredStage(nowStage)
                 secondsLeft = 0
             }
         }
@@ -77,6 +129,7 @@ fun TimerScreen(
         onDispose { lifecycle.removeObserver(observer) }
     }
 
+    // ------------------ Main UI ------------------
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
@@ -88,7 +141,7 @@ fun TimerScreen(
                         text = "Forest",
                         style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier
-                            .padding(end = 16.dp)
+                            .padding(end = 12.dp)
                             .clickable { navController.navigate("forest") }
                     )
                 }
@@ -103,6 +156,38 @@ fun TimerScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
 
+            // ------------------ Minimal non-interactive banner (least invasive) ------------------
+            if (persistedWithered) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    tonalElevation = 2.dp,
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Your last tree withered",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "Start a new session to grow a fresh one",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                        )
+                    }
+                }
+            }
+
+            // ------------------ Focus tree card ------------------
             FocusTreeCard(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -113,11 +198,13 @@ fun TimerScreen(
                 finished = finished,
                 treeWithered = treeWithered,
                 lastStageBeforeWither = lastStageBeforeWither,
+                persistedWithered = persistedWithered,
                 onStartPauseClick = {
                     if (!running) {
-                        // pass planned minutes to ViewModel API (it expects minutes)
-                        val plannedMinutes = (sessionSeconds / 60).coerceAtLeast(1)
-                        viewModel.startSession(plannedMinutes)
+                        // clear persisted wither when user intentionally starts a new session
+                        persistedWithered = false
+                        clearWitheredFlag()
+                        viewModel.startSession(sessionSeconds / 60)
                         finished = false
                         treeWithered = false
                     }
@@ -127,17 +214,17 @@ fun TimerScreen(
                     running = false
                     finished = false
                     treeWithered = false
+                    persistedWithered = false
                     lastStageBeforeWither = TreeStage.SEED
                     secondsLeft = sessionSeconds
                     viewModel.cancelSession()
-                },
-                onWitherAnimationFinished = {
-                    treeWithered = false
+                    clearWitheredFlag()
                 }
             )
 
             Spacer(Modifier.height(16.dp))
 
+            // ------------------ Session length card (MANDATORY layout) ------------------
             SessionLengthCard(
                 minutesText = customMinutes,
                 onMinutesChange = { input -> customMinutes = input.filter { it.isDigit() } },
@@ -148,7 +235,9 @@ fun TimerScreen(
                         secondsLeft = sessionSeconds
                         finished = false
                         treeWithered = false
+                        persistedWithered = false
                         lastStageBeforeWither = TreeStage.SEED
+                        clearWitheredFlag()
                     }
                 },
                 running = running
@@ -156,6 +245,7 @@ fun TimerScreen(
         }
     }
 
+    // ------------------ Timer loop ------------------
     LaunchedEffect(running, sessionSeconds) {
         while (running && secondsLeft > 0) {
             delay(1000L)
@@ -168,22 +258,20 @@ fun TimerScreen(
             running = false
             finished = true
 
-            val total = sessionSeconds.coerceAtLeast(1)
-            val progress = 1f - (secondsLeft.coerceAtLeast(0) / total.toFloat())
-            val isLong = sessionSeconds >= (60 * 60)
+            lastStageBeforeWither = stageFromProgress(1f, sessionSeconds >= 3600, true, false)
 
-            lastStageBeforeWither = stageFromProgress(progress, isLong, true, false)
-
-            // Save finished session — pass total planned seconds as elapsed override so ViewModel computes duration correctly.
             viewModel.endSessionAndSave(
                 wasWithered = false,
                 elapsedSecondsOverride = sessionSeconds.toLong()
             )
+
+            persistedWithered = false
+            clearWitheredFlag()
         }
     }
 }
 
-/* ---------------- FocusTreeCard (NO CollapseAnimation) ---------------- */
+/* ------------------ FocusTreeCard (uses persistedWithered to skip overlay) ------------------ */
 @Composable
 private fun FocusTreeCard(
     modifier: Modifier,
@@ -193,13 +281,13 @@ private fun FocusTreeCard(
     finished: Boolean,
     treeWithered: Boolean,
     lastStageBeforeWither: TreeStage,
+    persistedWithered: Boolean,
     onStartPauseClick: () -> Unit,
-    onResetClick: () -> Unit,
-    onWitherAnimationFinished: (() -> Unit)? = null
+    onResetClick: () -> Unit
 ) {
     val total = sessionSeconds.coerceAtLeast(1)
-    val progress = 1f - (secondsLeft.coerceAtLeast(0) / total.toFloat())
-    val isLongSession = sessionSeconds >= (60 * 60)
+    val progress = 1f - (secondsLeft / total.toFloat())
+    val isLongSession = sessionSeconds >= 3600
 
     val runningStage = when {
         finished && isLongSession -> TreeStage.FULL
@@ -211,7 +299,7 @@ private fun FocusTreeCard(
         else -> TreeStage.SEED
     }
 
-    val visualStage = if (treeWithered) lastStageBeforeWither else runningStage
+    val visualStage = if (treeWithered || persistedWithered) lastStageBeforeWither else runningStage
 
     Card(
         modifier = modifier,
@@ -232,19 +320,16 @@ private fun FocusTreeCard(
                     .weight(1f),
                 contentAlignment = Alignment.Center
             ) {
-                // Direct static drawing of tree; collapse animation removed
                 AnimatedTree(
                     stage = visualStage,
                     animate = false,
-                    treeWithered = treeWithered
+                    treeWithered = (treeWithered || persistedWithered)
                 )
 
-                // wither overlay still present (red X). Remove this call too if you want no overlay.
-                WitherOverlay(
-                    visible = treeWithered,
-                    holdMs = 900L,
-                    onFinished = { onWitherAnimationFinished?.invoke() }
-                )
+                // Only show animated overlay when it's a fresh wither (not persisted).
+                if (treeWithered && !persistedWithered) {
+                    WitherOverlay(visible = true, holdMs = 900L)
+                }
             }
 
             Text(
@@ -270,22 +355,19 @@ private fun FocusTreeCard(
                     onClick = onStartPauseClick,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     shape = RoundedCornerShape(50)
-                ) {
-                    Text(if (running) "Pause" else "Start")
-                }
+                ) { Text(if (running) "Pause" else "Start") }
+
                 OutlinedButton(
                     modifier = Modifier.weight(1f),
                     onClick = onResetClick,
                     shape = RoundedCornerShape(50)
-                ) {
-                    Text("Reset")
-                }
+                ) { Text("Reset") }
             }
         }
     }
 }
 
-/* ---------------- SessionLengthCard ---------------- */
+/* ------------------ SessionLengthCard (mandatory single-line minutes input) ------------------ */
 @Composable
 private fun SessionLengthCard(
     minutesText: String,
@@ -306,18 +388,17 @@ private fun SessionLengthCard(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Title & subtitle centered
+            Text("Session length", style = MaterialTheme.typography.bodyLarge)
             Text(
-                text = "Session length",
-                style = MaterialTheme.typography.bodyLarge
-            )
-            Text(
-                text = "longer sessions grow bigger trees",
+                "longer sessions grow bigger trees",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
             )
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            // Row: [left label]  [center input single-line]  [divider]  [Set button]
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -325,6 +406,7 @@ private fun SessionLengthCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
+                // Left label
                 Text(
                     text = "No. of minutes",
                     style = MaterialTheme.typography.bodyMedium,
@@ -333,12 +415,14 @@ private fun SessionLengthCard(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
+                // Center: single-line input, placeholder used to avoid two-line label wrap
                 OutlinedTextField(
                     value = minutesText,
                     onValueChange = onMinutesChange,
-                    modifier = Modifier.width(84.dp),
+                    modifier = Modifier.width(120.dp),
                     singleLine = true,
-                    label = { Text("Minutes") }
+                    maxLines = 1,
+                    placeholder = { Text("Minutes") }
                 )
 
                 Spacer(modifier = Modifier.width(12.dp))
@@ -352,10 +436,11 @@ private fun SessionLengthCard(
 
                 Spacer(modifier = Modifier.width(12.dp))
 
+                // Set button on right (visible & fixed min width)
                 Button(
                     onClick = onSetClick,
-                    enabled = minutesText.isNotEmpty(),
-                    modifier = Modifier.defaultMinSize(minWidth = 80.dp)
+                    enabled = minutesText.isNotEmpty() && !running,
+                    modifier = Modifier.defaultMinSize(minWidth = 88.dp)
                 ) {
                     Text("Set")
                 }
@@ -364,8 +449,10 @@ private fun SessionLengthCard(
     }
 }
 
+/* ------------------ Helpers ------------------ */
 private fun formatTime(seconds: Int): String {
-    val mm = seconds / 60
-    val ss = seconds % 60
-    return "%02d:%02d".format(mm.coerceAtLeast(0), ss.coerceAtLeast(0))
+    val s = seconds.coerceAtLeast(0)
+    val mm = s / 60
+    val ss = s % 60
+    return "%02d:%02d".format(mm, ss)
 }
