@@ -13,6 +13,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.pocketree.pocketree.ui.components.AnimatedTree
 import com.pocketree.pocketree.ui.components.TreeStage
+import kotlinx.coroutines.flow.collectLatest
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -21,16 +22,15 @@ fun TimerScreen(
     viewModel: TimerViewModel = viewModel(),
     modifier: Modifier = Modifier
 ) {
-    // Collect VM state
-    val isRunning by viewModel.isRunning.collectAsState()
+    // collect StateFlows from viewmodel
+    val running by viewModel.isRunning.collectAsState()
     val sessionSeconds by viewModel.sessionSeconds.collectAsState()
     val secondsLeft by viewModel.secondsLeft.collectAsState()
-    val isFinished by viewModel.isFinished.collectAsState()
-    val isWithered by viewModel.isWithered.collectAsState()
+    val finished by viewModel.isFinished.collectAsState()
+    val treeWithered by viewModel.isWithered.collectAsState()
     val lastStageBeforeWither by viewModel.lastStageBeforeWither.collectAsState()
 
-    // Local input state for minutes box
-    var minutesInput by remember { mutableStateOf("") }
+    var customMinutes by remember { mutableStateOf("") }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -58,41 +58,43 @@ fun TimerScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
 
-            // ----------------- PERSISTENT WITHER BANNER (SIMPLE) -----------------
-            if (isWithered) {
+            if (treeWithered && secondsLeft == 0) {
                 WitheredBanner()
                 Spacer(Modifier.height(12.dp))
             }
 
-            // ----------------- MAIN FOCUS CARD -----------------
             FocusTreeCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
                 secondsLeft = secondsLeft,
                 sessionSeconds = sessionSeconds,
-                running = isRunning,
-                finished = isFinished,
-                treeWithered = isWithered,
+                running = running,
+                finished = finished,
+                treeWithered = treeWithered,
                 lastStageBeforeWither = lastStageBeforeWither,
                 onStartPauseClick = {
-                    if (!isRunning) viewModel.startSession(plannedMinutes = sessionSeconds / 60)
-                    else viewModel.pauseSession()
+                    if (!running) {
+                        // start/resume with the current planned seconds -> convert to minutes
+                        val plannedMins = (sessionSeconds / 60).coerceAtLeast(1)
+                        viewModel.startSession(plannedMins)
+                    } else {
+                        viewModel.pauseSession()
+                    }
                 },
                 onResetClick = {
-                    viewModel.cancelSession()
+                    viewModel.resetSession()
                 }
             )
 
             Spacer(Modifier.height(16.dp))
 
-            // ----------------- SESSION LENGTH CARD -----------------
             SessionLengthCard(
-                minutesText = minutesInput,
-                onMinutesChange = { input -> minutesInput = input.filter { it.isDigit() } },
+                minutesText = customMinutes,
+                onMinutesChange = { input -> customMinutes = input.filter { it.isDigit() } },
                 onSetClick = {
-                    if (minutesInput.isNotEmpty()) {
-                        val mins = minutesInput.toInt().coerceAtLeast(1)
+                    if (customMinutes.isNotEmpty()) {
+                        val mins = customMinutes.toInt().coerceAtLeast(1)
                         viewModel.setSessionMinutes(mins)
                     }
                 }
@@ -101,36 +103,26 @@ fun TimerScreen(
     }
 }
 
-/* ----------------- WitheredBanner (minimal, no buttons) ----------------- */
+/* ---------------- Subcomponents (unchanged visual implementations) ---------------- */
+
 @Composable
-fun WitheredBanner() {
+private fun WitheredBanner() {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp)
-        ) {
-            Text(
-                text = "Your last tree withered",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = "Start a new session to grow a fresh one",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
-            )
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = "Your last tree withered", style = MaterialTheme.typography.bodyLarge)
+                Text(text = "Start a new session to grow a fresh one", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha=0.7f))
+            }
         }
     }
 }
 
-/* ----------------- FocusTreeCard ----------------- */
 @Composable
-fun FocusTreeCard(
+private fun FocusTreeCard(
     modifier: Modifier,
     secondsLeft: Int,
     sessionSeconds: Int,
@@ -143,76 +135,40 @@ fun FocusTreeCard(
 ) {
     val total = sessionSeconds.coerceAtLeast(1)
     val progress = 1f - (secondsLeft.coerceAtLeast(0) / total.toFloat())
-    val isLongSession = sessionSeconds >= 60 * 60
 
     val runningStage = when {
-        finished && isLongSession -> TreeStage.FULL
-        finished && !isLongSession -> TreeStage.YOUNG
-        running && progress >= 0.85f -> TreeStage.FULL
-        running && progress >= 0.45f -> TreeStage.YOUNG
-        running && progress >= 0.15f -> TreeStage.SAPLING
-        running -> TreeStage.SEED
+        progress >= 0.85f -> TreeStage.FULL
+        progress >= 0.45f -> TreeStage.YOUNG
+        progress >= 0.15f -> TreeStage.SAPLING
         else -> TreeStage.SEED
     }
 
-    val visualStage = if (treeWithered) lastStageBeforeWither else runningStage
+    val stageToShow = if (treeWithered) lastStageBeforeWither else if (finished) TreeStage.FULL else runningStage
 
     Card(
         modifier = modifier,
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
+        colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                contentAlignment = Alignment.Center
-            ) {
-                // Show the correct sprite; animate only when running and not withered
-                AnimatedTree(
-                    stage = visualStage,
-                    animate = running && !treeWithered,
-                    treeWithered = treeWithered
-                )
+            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                AnimatedTree(stage = stageToShow, animate = true, treeWithered = treeWithered)
             }
 
-            Text(
-                text = formatTime(secondsLeft),
-                style = MaterialTheme.typography.titleLarge
-            )
-
-            Text(
-                text = "Session: ${sessionSeconds / 60} min",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-            )
+            Text(text = formatTime(secondsLeft), style = MaterialTheme.typography.titleLarge)
+            Text(text = "Session: ${sessionSeconds / 60} min", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
 
             Spacer(Modifier.height(12.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Button(
-                    modifier = Modifier.weight(1f),
-                    onClick = onStartPauseClick,
-                    shape = RoundedCornerShape(50)
-                ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(modifier = Modifier.weight(1f), onClick = onStartPauseClick, shape = RoundedCornerShape(50)) {
                     Text(if (running) "Pause" else "Start")
                 }
-
-                OutlinedButton(
-                    modifier = Modifier.weight(1f),
-                    onClick = onResetClick,
-                    shape = RoundedCornerShape(50)
-                ) {
+                OutlinedButton(modifier = Modifier.weight(1f), onClick = onResetClick, shape = RoundedCornerShape(50)) {
                     Text("Reset")
                 }
             }
@@ -220,72 +176,27 @@ fun FocusTreeCard(
     }
 }
 
-/* ----------------- SessionLengthCard ----------------- */
 @Composable
-fun SessionLengthCard(
+private fun SessionLengthCard(
     minutesText: String,
     onMinutesChange: (String) -> Unit,
     onSetClick: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = "Session length",
-                style = MaterialTheme.typography.bodyLarge
-            )
-
-            Text(
-                text = "longer sessions grow bigger trees",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-            )
-
+    Card(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, elevation = CardDefaults.cardElevation(defaultElevation = 4.dp), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(text = "Session length", style = MaterialTheme.typography.bodyLarge)
+            Text(text = "longer sessions grow bigger trees", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
             Spacer(Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "No. of minutes",
-                    modifier = Modifier.weight(1f)
-                )
-
-                OutlinedTextField(
-                    value = minutesText,
-                    onValueChange = onMinutesChange,
-                    modifier = Modifier
-                        .width(90.dp)
-                        .height(56.dp),
-                    singleLine = true,
-                    label = { Text("Minutes") }
-                )
-
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(text = "No. of minutes", modifier = Modifier.weight(1f))
+                OutlinedTextField(value = minutesText, onValueChange = onMinutesChange, modifier = Modifier.width(90.dp).height(56.dp), singleLine = true, label = { Text("Minutes") })
                 Spacer(Modifier.width(12.dp))
-
-                Button(
-                    onClick = onSetClick,
-                    enabled = minutesText.isNotEmpty(),
-                    modifier = Modifier.defaultMinSize(minWidth = 80.dp)
-                ) {
-                    Text("Set")
-                }
+                Button(onClick = onSetClick, enabled = minutesText.isNotEmpty(), modifier = Modifier.defaultMinSize(minWidth = 80.dp)) { Text("Set") }
             }
         }
     }
 }
 
-/* ----------------- Helper ----------------- */
 private fun formatTime(seconds: Int): String {
     val mm = seconds / 60
     val ss = seconds % 60

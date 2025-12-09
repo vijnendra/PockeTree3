@@ -1,12 +1,13 @@
 package com.pocketree.pocketree.ui.timer
 
 import android.app.Application
-import android.util.Log
-import androidx.lifecycle.*
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.pocketree.pocketree.data.model.TreeSession
 import com.pocketree.pocketree.data.repository.TreeSessionRepository
-import com.pocketree.pocketree.ui.components.TreeStage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,13 +15,18 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
-private const val TAG = "TimerViewModel"
-
+/**
+ * Single source of truth for timer state.
+ * - Exposes StateFlows the UI collects.
+ * - Keeps ticking in viewModelScope so navigation won't cancel it.
+ * - Observes ProcessLifecycleOwner to detect app backgrounding and mark withered sessions.
+ */
 class TimerViewModel(application: Application) : AndroidViewModel(application) {
 
+    // repository (adapt to your repository constructor if different)
     private val repo = TreeSessionRepository(application)
 
-    // UI-observable state flows
+    // ---- state exposed to UI ----
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning
 
@@ -36,157 +42,172 @@ class TimerViewModel(application: Application) : AndroidViewModel(application) {
     private val _isWithered = MutableStateFlow(false)
     val isWithered: StateFlow<Boolean> = _isWithered
 
-    private val _lastStageBeforeWither = MutableStateFlow(TreeStage.SEED)
-    val lastStageBeforeWither: StateFlow<TreeStage> = _lastStageBeforeWither
+    private val _lastStageBeforeWither = MutableStateFlow(com.pocketree.pocketree.ui.components.TreeStage.SEED)
+    val lastStageBeforeWither: StateFlow<com.pocketree.pocketree.ui.components.TreeStage> = _lastStageBeforeWither
 
-    private var countdownJob: Job? = null
-
-    // planned minutes used for saving to DB
-    private var plannedMinutesForCurrentSession: Int = 25
-
-    // guard to avoid double-handling background event
-    private var backgroundHandled = false
-
-    // Declare observer before init so Kotlin knows it's initialized
-    private val processLifecycleObserver = LifecycleEventObserver { _, event ->
-        if (event == Lifecycle.Event.ON_STOP) {
-            if (_isRunning.value) {
-                Log.d(TAG, "ProcessLifecycleOwner ON_STOP detected, calling onAppBackgrounded()")
-                onAppBackgrounded()
-            }
-        }
-    }
+    // internal ticking job
+    private var tickerJob: Job? = null
 
     init {
-        // Register observer to ProcessLifecycleOwner to handle app -> background.
-        ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
+        // Observe app lifecycle using ProcessLifecycleOwner.
+        // When app goes to background (ON_STOP) and timer is running -> wither.
+        val lifecycleOwner = ProcessLifecycleOwner.get()
+        lifecycleOwner.lifecycle.addObserver(LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> {
+                    if (_isRunning.value) {
+                        // compute elapsed based on secondsLeft
+                        val elapsed = _sessionSeconds.value - _secondsLeft.value
+                        val plannedMins = (_sessionSeconds.value / 60).coerceAtLeast(1)
+
+                        // determine approximate stage for lastStageBeforeWither
+                        val total = _sessionSeconds.value.coerceAtLeast(1)
+                        val progress = 1f - (_secondsLeft.value.coerceAtLeast(0) / total.toFloat())
+                        val isLong = _sessionSeconds.value >= 3600
+                        _lastStageBeforeWither.value = stageFromProgress(progress, isLong, _isFinished.value, _isRunning.value)
+
+                        // mark withered
+                        _isWithered.value = true
+                        _isRunning.value = false
+                        _isFinished.value = false
+
+                        // save in repo
+                        endSessionAndSaveInternal(withered = true, elapsedSecondsOverride = elapsed.toLong(), plannedMinutes = plannedMins)
+
+                        // zero out
+                        _secondsLeft.value = 0
+                    }
+                }
+                else -> { /* no-op */ }
+            }
+        })
     }
 
-    /**
-     * Start a session. plannedMinutes defaults to current sessionSeconds / 60.
-     */
-    fun startSession(plannedMinutes: Int = (_sessionSeconds.value / 60)) {
-        if (_isRunning.value) return
-        backgroundHandled = false
-        plannedMinutesForCurrentSession = plannedMinutes.coerceAtLeast(1)
+    // compute stage helper (same thresholds as UI)
+    private fun stageFromProgress(progress: Float, isLong: Boolean, finishedFlag: Boolean, runningFlag: Boolean): com.pocketree.pocketree.ui.components.TreeStage {
+        return when {
+            finishedFlag -> com.pocketree.pocketree.ui.components.TreeStage.FULL
+            runningFlag && progress >= 0.85f -> com.pocketree.pocketree.ui.components.TreeStage.FULL
+            runningFlag && progress >= 0.45f -> com.pocketree.pocketree.ui.components.TreeStage.YOUNG
+            runningFlag && progress >= 0.15f -> com.pocketree.pocketree.ui.components.TreeStage.SAPLING
+            runningFlag -> com.pocketree.pocketree.ui.components.TreeStage.SEED
+            else -> com.pocketree.pocketree.ui.components.TreeStage.SEED
+        }
+    }
+
+    // -------- public control API the UI calls --------
+
+    /** Start the session. plannedMinutes must be >= 1. */
+    fun startSession(plannedMinutes: Int) {
+        val secs = plannedMinutes.coerceAtLeast(1) * 60
+        _sessionSeconds.value = secs
+        _secondsLeft.value = secs
         _isWithered.value = false
         _isFinished.value = false
-        _isRunning.value = true
+        _lastStageBeforeWither.value = com.pocketree.pocketree.ui.components.TreeStage.SEED
 
-        if (countdownJob?.isActive != true) {
-            countdownJob = viewModelScope.launch {
-                while (_isRunning.value && _secondsLeft.value > 0) {
-                    delay(1000L)
-                    _secondsLeft.value = _secondsLeft.value - 1
-                }
-                if (_isRunning.value && _secondsLeft.value <= 0) {
-                    // Normal finish
-                    _isRunning.value = false
-                    _isFinished.value = true
-                    endSessionAndSave(wasWithered = false, elapsedSecondsOverride = _sessionSeconds.value.toLong())
-                }
-            }
-        }
+        _isRunning.value = true
+        startTickerIfNeeded()
+        // store session start time internally for saving
+        _sessionStartMs = System.currentTimeMillis()
+        _plannedMinutesForSave = plannedMinutes.coerceAtLeast(1)
     }
 
     fun pauseSession() {
         _isRunning.value = false
+        stopTicker()
     }
 
-    fun cancelSession() {
-        _isRunning.value = false
-        _isFinished.value = false
-        _isWithered.value = false
-        _lastStageBeforeWither.value = TreeStage.SEED
-        _secondsLeft.value = _sessionSeconds.value
-        plannedMinutesForCurrentSession = (_sessionSeconds.value / 60)
-        backgroundHandled = false
-        countdownJob?.cancel()
-        countdownJob = null
-    }
-
-    fun clearWithered() {
-        _isWithered.value = false
-        _lastStageBeforeWither.value = TreeStage.SEED
-        backgroundHandled = false
-    }
-
-    fun setSessionMinutes(mins: Int) {
-        val m = mins.coerceAtLeast(1)
-        _sessionSeconds.value = m * 60
-        _secondsLeft.value = _sessionSeconds.value
-        plannedMinutesForCurrentSession = m
-    }
-
-    /**
-     * Called when the app process goes to background. This marks session as withered,
-     * stops timer and saves a withered session to DB. Idempotent per session.
-     */
-    fun onAppBackgrounded() {
-        if (!_isRunning.value) return
-        if (backgroundHandled) return
-
-        backgroundHandled = true
-
-        val total = _sessionSeconds.value.coerceAtLeast(1)
-        val progress = 1f - (_secondsLeft.value.coerceAtLeast(0) / total.toFloat())
-        val isLong = _sessionSeconds.value >= 60 * 60
-
-        _lastStageBeforeWither.value = when {
-            progress >= 0.85f && isLong -> TreeStage.FULL
-            progress >= 0.45f -> TreeStage.YOUNG
-            progress >= 0.15f -> TreeStage.SAPLING
-            else -> TreeStage.SEED
+    fun resumeSession() {
+        if (!_isFinished.value && _secondsLeft.value > 0) {
+            _isRunning.value = true
+            startTickerIfNeeded()
         }
-
-        _isWithered.value = true
-        _isRunning.value = false
-        _isFinished.value = false
-
-        val elapsed = (_sessionSeconds.value - _secondsLeft.value).toLong()
-        endSessionAndSave(wasWithered = true, elapsedSecondsOverride = elapsed)
     }
 
-    /**
-     * End and persist a session. elapsedSecondsOverride must be in seconds.
-     */
-    fun endSessionAndSave(wasWithered: Boolean, elapsedSecondsOverride: Long? = null) {
-        val elapsedSec = elapsedSecondsOverride ?: 0L
-        val durationMin = (elapsedSec / 60L).toInt().coerceAtLeast(0)
-
-        val finalDuration = if (wasWithered) durationMin.coerceAtMost(plannedMinutesForCurrentSession)
-        else plannedMinutesForCurrentSession
-
-        // reset
+    fun resetSession() {
         _isRunning.value = false
-        countdownJob?.cancel()
-        countdownJob = null
+        _isFinished.value = false
+        _isWithered.value = false
+        _secondsLeft.value = _sessionSeconds.value
+        stopTicker()
+    }
 
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                repo.insert(
-                    TreeSession(
-                        plannedMinutes = plannedMinutesForCurrentSession,
-                        durationMinutes = finalDuration,
-                        startTime = System.currentTimeMillis() - TimeUnit.SECONDS.toMillis(elapsedSec),
-                        endTime = System.currentTimeMillis(),
-                        isWithered = wasWithered
-                    )
-                )
-                Log.d(TAG, "Saved session (withered=$wasWithered, durationMin=$finalDuration)")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error saving session", e)
+    /** Called by UI when user explicitly sets new planned minutes (before starting) */
+    fun setSessionMinutes(minutes: Int) {
+        val mins = minutes.coerceAtLeast(1)
+        _sessionSeconds.value = mins * 60
+        _secondsLeft.value = mins * 60
+    }
+
+    // -------- ticker management --------
+    private fun startTickerIfNeeded() {
+        if (tickerJob != null && tickerJob?.isActive == true) return
+
+        tickerJob = viewModelScope.launch {
+            while (_isRunning.value && _secondsLeft.value > 0) {
+                delay(1000L)
+                _secondsLeft.value = (_secondsLeft.value - 1).coerceAtLeast(0)
+            }
+
+            if (_isRunning.value && _secondsLeft.value <= 0) {
+                // natural completion
+                _isRunning.value = false
+                _isFinished.value = true
+
+                // set final stage FULL
+                _lastStageBeforeWither.value = com.pocketree.pocketree.ui.components.TreeStage.FULL
+
+                // persist completed session
+                val planned = _plannedMinutesForSave.coerceAtLeast(1)
+                endSessionAndSaveInternal(withered = false, elapsedSecondsOverride = _sessionSeconds.value.toLong(), plannedMinutes = planned)
             }
         }
     }
 
-    override fun onCleared() {
-        try {
-            ProcessLifecycleOwner.get().lifecycle.removeObserver(processLifecycleObserver)
-        } catch (e: Exception) {
-            // ignore
+    private fun stopTicker() {
+        tickerJob?.cancel()
+        tickerJob = null
+    }
+
+    // -------- saving to DB --------
+    private var _sessionStartMs: Long = 0L
+    private var _plannedMinutesForSave: Int = 0
+
+    // internal save helper: uses repo.insert(TreeSession(...))
+    private fun endSessionAndSaveInternal(withered: Boolean, elapsedSecondsOverride: Long? = null, plannedMinutes: Int) {
+        // compute elapsed secs
+        val start = _sessionStartMs
+        val now = System.currentTimeMillis()
+        val elapsedSec = elapsedSecondsOverride ?: if (start > 0L) TimeUnit.MILLISECONDS.toSeconds(now - start) else 0L
+
+        val minutes = (elapsedSec / 60L).toInt()
+        val finalDuration = if (withered) minutes.coerceAtMost(plannedMinutes) else plannedMinutes
+
+        // reset
+        _sessionStartMs = 0L
+
+        viewModelScope.launch {
+            repo.insert(
+                TreeSession(
+                    plannedMinutes = plannedMinutes,
+                    durationMinutes = finalDuration,
+                    startTime = start,
+                    endTime = now,
+                    isWithered = withered
+                )
+            )
         }
-        countdownJob?.cancel()
+    }
+
+    // Backwards-compatible wrapper that UI code used earlier (keeps param names)
+    fun endSessionAndSave(wasWithered: Boolean, elapsedSecondsOverride: Long? = null) {
+        val planned = _plannedMinutesForSave.coerceAtLeast(1)
+        endSessionAndSaveInternal(wasWithered, elapsedSecondsOverride, planned)
+    }
+
+    override fun onCleared() {
         super.onCleared()
+        stopTicker()
     }
 }
