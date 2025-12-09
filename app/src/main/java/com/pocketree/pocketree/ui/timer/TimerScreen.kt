@@ -8,17 +8,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.pocketree.pocketree.ui.components.AnimatedTree
 import com.pocketree.pocketree.ui.components.TreeStage
-import com.pocketree.pocketree.ui.components.WitherOverlay
-import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -27,63 +21,16 @@ fun TimerScreen(
     viewModel: TimerViewModel = viewModel(),
     modifier: Modifier = Modifier
 ) {
-    var running by remember { mutableStateOf(false) }
-    var sessionSeconds by remember { mutableStateOf(25 * 60) }
-    var secondsLeft by remember { mutableStateOf(sessionSeconds) }
+    // Collect VM state
+    val isRunning by viewModel.isRunning.collectAsState()
+    val sessionSeconds by viewModel.sessionSeconds.collectAsState()
+    val secondsLeft by viewModel.secondsLeft.collectAsState()
+    val isFinished by viewModel.isFinished.collectAsState()
+    val isWithered by viewModel.isWithered.collectAsState()
+    val lastStageBeforeWither by viewModel.lastStageBeforeWither.collectAsState()
 
-    var finished by remember { mutableStateOf(false) }
-    var treeWithered by remember { mutableStateOf(false) }
-
-    var lastStageBeforeWither by remember { mutableStateOf(TreeStage.SEED) }
-
-    var customMinutes by remember { mutableStateOf("") }
-
-    fun stageFromProgress(progress: Float, isLong: Boolean, finished: Boolean, running: Boolean): TreeStage {
-        return when {
-            finished && isLong -> TreeStage.FULL
-            finished && !isLong -> TreeStage.YOUNG
-            running && progress >= 0.85f -> TreeStage.FULL
-            running && progress >= 0.45f -> TreeStage.YOUNG
-            running && progress >= 0.15f -> TreeStage.SAPLING
-            running -> TreeStage.SEED
-            else -> TreeStage.SEED
-        }
-    }
-
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-
-    DisposableEffect(lifecycle, running, sessionSeconds, secondsLeft) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP && running) {
-                val appState = ProcessLifecycleOwner.get().lifecycle.currentState
-                val appBackgrounded = !appState.isAtLeast(Lifecycle.State.STARTED)
-
-
-                if (appBackgrounded) {
-                    val total = sessionSeconds.coerceAtLeast(1)
-                    val progress = 1f - (secondsLeft.coerceAtLeast(0) / total.toFloat())
-                    val longSession = sessionSeconds >= 3600
-
-                    lastStageBeforeWither = stageFromProgress(progress, longSession, finished, running)
-
-                    treeWithered = true
-                    running = false
-                    finished = false
-
-                    val elapsed = sessionSeconds - secondsLeft
-                    viewModel.endSessionAndSave(
-                        wasWithered = true,
-                        elapsedSecondsOverride = elapsed.toLong()
-                    )
-
-                    secondsLeft = 0
-                }
-            }
-        }
-
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
-    }
+    // Local input state for minutes box
+    var minutesInput by remember { mutableStateOf("") }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -111,103 +58,77 @@ fun TimerScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
 
-            if (treeWithered && secondsLeft == 0) {
+            // ----------------- PERSISTENT WITHER BANNER (SIMPLE) -----------------
+            if (isWithered) {
                 WitheredBanner()
                 Spacer(Modifier.height(12.dp))
             }
 
+            // ----------------- MAIN FOCUS CARD -----------------
             FocusTreeCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
                 secondsLeft = secondsLeft,
                 sessionSeconds = sessionSeconds,
-                running = running,
-                finished = finished,
-                treeWithered = treeWithered,
+                running = isRunning,
+                finished = isFinished,
+                treeWithered = isWithered,
                 lastStageBeforeWither = lastStageBeforeWither,
                 onStartPauseClick = {
-                    if (!running) {
-                        viewModel.startSession(planned = sessionSeconds / 60)
-                        finished = false
-                        treeWithered = false
-                    }
-                    running = !running
+                    if (!isRunning) viewModel.startSession(plannedMinutes = sessionSeconds / 60)
+                    else viewModel.pauseSession()
                 },
                 onResetClick = {
-                    running = false
-                    finished = false
-                    treeWithered = false
-                    lastStageBeforeWither = TreeStage.SEED
-                    secondsLeft = sessionSeconds
                     viewModel.cancelSession()
                 }
             )
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(16.dp))
 
+            // ----------------- SESSION LENGTH CARD -----------------
             SessionLengthCard(
-                minutesText = customMinutes,
-                onMinutesChange = { txt -> customMinutes = txt.filter { it.isDigit() } },
+                minutesText = minutesInput,
+                onMinutesChange = { input -> minutesInput = input.filter { it.isDigit() } },
                 onSetClick = {
-                    if (customMinutes.isNotEmpty()) {
-                        val mins = customMinutes.toInt().coerceAtLeast(1)
-                        sessionSeconds = mins * 60
-                        secondsLeft = sessionSeconds
-                        finished = false
-                        treeWithered = false
-                        lastStageBeforeWither = TreeStage.SEED
+                    if (minutesInput.isNotEmpty()) {
+                        val mins = minutesInput.toInt().coerceAtLeast(1)
+                        viewModel.setSessionMinutes(mins)
                     }
                 }
             )
         }
     }
+}
 
-    LaunchedEffect(running, sessionSeconds) {
-        while (running && secondsLeft > 0) {
-            delay(1000L)
-            secondsLeft -= 1
-        }
-
-        if (!running) return@LaunchedEffect
-
-        if (secondsLeft <= 0) {
-            running = false
-            finished = true
-
-            val longSession = sessionSeconds >= 3600
-            lastStageBeforeWither = if (longSession) TreeStage.FULL else TreeStage.YOUNG
-
-            viewModel.endSessionAndSave(
-                wasWithered = false,
-                elapsedSecondsOverride = sessionSeconds.toLong()
+/* ----------------- WitheredBanner (minimal, no buttons) ----------------- */
+@Composable
+fun WitheredBanner() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Text(
+                text = "Your last tree withered",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "Start a new session to grow a fresh one",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
             )
         }
     }
 }
 
-@Composable
-fun WitheredBanner() {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), RoundedCornerShape(18.dp))
-            .padding(horizontal = 24.dp, vertical = 14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = "Your last tree withered",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Text(
-            text = "Start a new session to grow a fresh one",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-        )
-    }
-}
-
+/* ----------------- FocusTreeCard ----------------- */
 @Composable
 fun FocusTreeCard(
     modifier: Modifier,
@@ -222,25 +143,25 @@ fun FocusTreeCard(
 ) {
     val total = sessionSeconds.coerceAtLeast(1)
     val progress = 1f - (secondsLeft.coerceAtLeast(0) / total.toFloat())
-    val longSession = sessionSeconds >= 3600
+    val isLongSession = sessionSeconds >= 60 * 60
 
-    val runningStage =
-        if (finished) {
-            if (longSession) TreeStage.FULL else TreeStage.YOUNG
-        } else when {
-            progress >= 0.85f -> TreeStage.FULL
-            progress >= 0.45f -> TreeStage.YOUNG
-            progress >= 0.15f -> TreeStage.SAPLING
-            else -> TreeStage.SEED
-        }
+    val runningStage = when {
+        finished && isLongSession -> TreeStage.FULL
+        finished && !isLongSession -> TreeStage.YOUNG
+        running && progress >= 0.85f -> TreeStage.FULL
+        running && progress >= 0.45f -> TreeStage.YOUNG
+        running && progress >= 0.15f -> TreeStage.SAPLING
+        running -> TreeStage.SEED
+        else -> TreeStage.SEED
+    }
 
-    val stageToShow = if (treeWithered) lastStageBeforeWither else runningStage
+    val visualStage = if (treeWithered) lastStageBeforeWither else runningStage
 
     Card(
         modifier = modifier,
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
     ) {
         Column(
             modifier = Modifier
@@ -254,9 +175,10 @@ fun FocusTreeCard(
                     .weight(1f),
                 contentAlignment = Alignment.Center
             ) {
+                // Show the correct sprite; animate only when running and not withered
                 AnimatedTree(
-                    stage = stageToShow,
-                    animate = false,
+                    stage = visualStage,
+                    animate = running && !treeWithered,
                     treeWithered = treeWithered
                 )
             }
@@ -298,6 +220,7 @@ fun FocusTreeCard(
     }
 }
 
+/* ----------------- SessionLengthCard ----------------- */
 @Composable
 fun SessionLengthCard(
     minutesText: String,
@@ -362,8 +285,9 @@ fun SessionLengthCard(
     }
 }
 
+/* ----------------- Helper ----------------- */
 private fun formatTime(seconds: Int): String {
     val mm = seconds / 60
     val ss = seconds % 60
-    return "%02d:%02d".format(mm, ss)
+    return "%02d:%02d".format(mm.coerceAtLeast(0), ss.coerceAtLeast(0))
 }
