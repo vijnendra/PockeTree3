@@ -13,7 +13,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            PocketreeTheme {
+            // If you want system-controlled dark/light, use: PocketreeTheme()
+            PocketreeTheme(darkTheme = true) {    // ← force dark theme
                 val navController = rememberNavController()
                 AppNavHost(navController = navController)
             }
