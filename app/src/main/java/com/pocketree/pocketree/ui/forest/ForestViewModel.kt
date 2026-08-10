@@ -13,23 +13,54 @@ class ForestViewModel(
     private val repository: TreeSessionRepository
 ) : ViewModel() {
 
+    // full session list (raw from DB)
     private val _allSessions = MutableStateFlow<List<TreeSession>>(emptyList())
 
+    // filtered list for UI
     private val _displaySessions = MutableStateFlow<List<TreeSession>>(emptyList())
     val displaySessions: StateFlow<List<TreeSession>> = _displaySessions
 
+    // streak calculation (unchanged)
     private val _streak = MutableStateFlow(0)
     val streak: StateFlow<Int> = _streak
+
+    // --- New: summary statistics for the top bar ---
+    private val _completedCount = MutableStateFlow(0)
+    val completedCount: StateFlow<Int> = _completedCount
+
+    private val _witheredCount = MutableStateFlow(0)
+    val witheredCount: StateFlow<Int> = _witheredCount
+
+    // total minutes focused across successful sessions
+    private val _totalMinutesFocused = MutableStateFlow(0)
+    val totalMinutesFocused: StateFlow<Int> = _totalMinutesFocused
 
     init {
         viewModelScope.launch {
             repository.getAll()
                 .collect { list ->
+                    // Keep same sorting behaviour
                     _allSessions.value = list.sortedByDescending { it.startTime }
-                    setTab(0) // default = Day
+                    // recompute displayed list + derived metrics
+                    setTab(0) // default = Day - will call filterDay based on _allSessions
                     calculateStreak()
+                    computeSummaryStats()
                 }
         }
+    }
+
+    // compute the three summary values from _allSessions
+    private fun computeSummaryStats() {
+        val all = _allSessions.value
+
+        val completed = all.count { !it.isWithered && it.durationMinutes > 0 }
+        val withered = all.count { it.isWithered }
+        val minutesFocused = all.filter { !it.isWithered }
+            .sumOf { it.durationMinutes }
+
+        _completedCount.value = completed
+        _witheredCount.value = withered
+        _totalMinutesFocused.value = minutesFocused
     }
 
     fun setTab(tab: Int) {

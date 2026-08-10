@@ -15,7 +15,12 @@ val PocketTypography = Typography(
     titleMedium = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Medium,
-        fontSize = 18.sp
+        fontSize = 16.sp
+    ),
+    titleSmall = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Medium,
+        fontSize = 14.sp
     ),
     bodyLarge = TextStyle(
         fontFamily = FontFamily.Default,
